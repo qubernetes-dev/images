@@ -6,17 +6,15 @@ run-name: MLFlow Image Build and Push triggered by ${{ github.ref_name }} on ${{
 # separate terms of service, privacy policy, and support
 # documentation.
 
-# on:
-#   push:
-#     branches: 
-#       - "main"
-#       - ${{ github.ref_name }}   # TODO: This is added to test the workflow. Remove once tests are done.
-#     # Publish semver tags as releases.
-#     tags: [ 'mlflow-v*.*.*' ]
-#   pull_request:
-#     branches: [ "main" ]
-
-on: [push]
+on:
+  push:
+    branches: 
+      - "main"
+      - "feature/mlflow-postgresql-support-embedded-image"   # TODO: This is added to test the workflow. Remove once tests are done.
+    # Publish semver tags as releases.
+    tags: [ 'mlflow-v*.*.*' ]
+  pull_request:
+    branches: [ "main" ]
 
 env:
   # Use docker.io for Docker Hub if empty
