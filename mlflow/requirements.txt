@@ -1,0 +1,4 @@
+cryptography==44.0.2 # TODO: Check if this is needed
+boto3==1.37.20 # Used because MinIO provides an S3-compatible API
+mlflow==2.21.1 
+psycopg2-binary # Added based on the existing command in mlflow.yaml
