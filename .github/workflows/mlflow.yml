@@ -1,4 +1,5 @@
-name: Docker
+name: MLFlow Docker Build and Push
+run-name: MLFlow Image Build and Push triggered by ${{ github.ref_name }} on ${{ github.event_name }} event
 
 # This workflow uses actions that are not certified by GitHub.
 # They are provided by a third-party and are governed by
