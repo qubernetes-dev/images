@@ -13,8 +13,6 @@ on:
       - ${{ github.ref_name }}   # TODO: This is added to test the workflow. Remove once tests are done.
     # Publish semver tags as releases.
     tags: [ 'mlflow-v*.*.*' ]
-    paths:
-      - 'mlflow/**'
   pull_request:
     branches: [ "main" ]
 
