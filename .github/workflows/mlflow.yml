@@ -69,7 +69,8 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag,pattern={{ ref }}-{{ sha }}
-            type=ref,event=tag,pattern={{ ref }},format={{ replace(ref, '^refs/tags/mlflow-', '') }}
+            type=semver,pattern={{version}}
+
 
       # Debug: Show generated tags
       - name: Show generated Docker tags
