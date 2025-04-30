@@ -68,8 +68,11 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag,pattern={{ ref }}-{{ sha }}
+            type=ref,event=branch
+            type=ref,event=tag
             type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
 
 
       # Debug: Show generated tags
