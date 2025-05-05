@@ -12,8 +12,15 @@ on:
       - "main"
     # Publish semver tags as releases.
     tags: [ 'mlflow-v*.*.*' ]
+    # Only run when changes happen in the mlflow directory
+    paths:
+      - 'mlflow/**'
   pull_request:
     branches: [ "main" ]
+    # Only run when changes happen in the mlflow directory
+    paths:
+      - 'mlflow/**'
+    
 
 env:
   # Use docker.io for Docker Hub if empty
