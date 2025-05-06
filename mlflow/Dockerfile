@@ -10,8 +10,15 @@ COPY requirements.txt .
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the entrypoint script into the working directory and make it executable
+COPY entrypoint.sh .
+RUN chmod +x ./entrypoint.sh
+
 # Make port 5000 available to the world outside this container
 EXPOSE 5000
 
-# Note: The command to run mlflow server is specified in the Kubernetes deployment (mlflow.yaml)
-# No CMD or ENTRYPOINT needed here if the k8s manifest overrides it.
+# Set the entrypoint script to run when the container starts
+ENTRYPOINT ["./entrypoint.sh"]
+
+# Optional: Define default command arguments if the entrypoint expects them via "$@"
+# CMD ["--workers", "4"]
