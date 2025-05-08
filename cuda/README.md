@@ -1,6 +1,6 @@
 # Introduction
 
-This serve as a base image for containers that need GPU accelerated quantum simulators like Qiskit Aer or PennyLine Lightning.
+This serves as a base image for containers that need GPU accelerated quantum simulators like Qiskit Aer or PennyLine Lightning.
 
 ## Release a new version
 
