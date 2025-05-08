@@ -1,0 +1,8 @@
+# needed by qiskit-aer
+# https://github.com/Qiskit/qiskit-aer/blob/main/CONTRIBUTING.md#building-with-cuda-support
+
+nvidia-cuda-runtime-cu12==12.3.101
+nvidia-cublas-cu12==12.3.4.1
+nvidia-cusolver-cu12==11.5.4.101
+nvidia-cusparse-cu12==12.2.0.103
+cuquantum-cu12==23.10.0
