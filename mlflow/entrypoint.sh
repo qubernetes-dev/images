@@ -11,5 +11,5 @@ MLFLOW_DEFAULT_ARTIFACT_ROOT="${MLFLOW_DEFAULT_ARTIFACT_ROOT:-s3://mlflow}"
 # "$@" allows passing additional arguments from Kubernetes 'args' if needed in the future
 exec mlflow server \
     --host "$MLFLOW_HOST" \
-    --default-artifact-root "$MLFLOW_DEFAULT_ARTIFACT_ROOT" \
+    --artifacts-destination "$MLFLOW_DEFAULT_ARTIFACT_ROOT" \
     "$@"
