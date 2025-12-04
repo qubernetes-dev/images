@@ -18,6 +18,7 @@ on:
     # TODO: Check this path filter works as expected
     paths:
       - "cuda/**"
+      - ".github/scripts/**"
 
 env:
   # Use docker.io for Docker Hub if empty
@@ -27,7 +28,28 @@ env:
   IMAGE_NAME: ${{ github.repository_owner }}/cuda
 
 jobs:
-  build:
+  detect-python-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r .github/scripts/requirements.txt
+
+      - name: Detect supported Python versions
+        id: detect
+        run: |
+          versions=$(python .github/scripts/supported_pythons.py)
+          echo "Detected versions: $versions"
+          # versions must be valid JSON, e.g. ["3.9","3.10"]
+          echo "matrix=$versions" >> "$GITHUB_OUTPUT"
+
+  build-cuda:
+    needs: detect-python-versions
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,6 +57,10 @@ jobs:
       # This is used to complete the identity challenge
       # with sigstore/fulcio when running outside of PRs.
       id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(needs.detect-python-versions.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
@@ -72,9 +98,9 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=match,pattern=cuda-v([0-9]+\.[0-9]+\.[0-9]+-r[0-9]+),group=1 # Only matches revisioned tags
-            type=match,pattern=cuda-v([0-9]+\.[0-9]+\.[0-9]+),group=1,enable=${{ startsWith(github.ref_name, 'cuda-v') && !contains(github.ref_name, '-r') }} # Only matches base tags
-            type=sha
+            type=match,pattern=cuda-v([0-9]+\.[0-9]+\.[0-9]+-r[0-9]+),group=1,suffix=-py${{ matrix.python-version }} # Only matches revisioned tags cuda-vX.Y.Z-rN
+            type=match,pattern=cuda-v([0-9]+\.[0-9]+\.[0-9]+),group=1,enable=${{ startsWith(github.ref_name, 'cuda-v') && !contains(github.ref_name, '-r') }},suffix=-py${{ matrix.python-version }} # Only matches base tags cuda-vX.Y.Z
+            # type=sha
 
       # Build and push Docker image with Buildx (don't push on PR)
       # https://github.com/docker/build-push-action
@@ -88,6 +114,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            PYTHON_VERSION=${{ matrix.python-version }}
 
       # Sign the resulting Docker image digest except on PRs.
       # This will only write to the public Rekor transparency log when the Docker

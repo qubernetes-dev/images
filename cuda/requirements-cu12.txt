@@ -1,0 +1,5 @@
+# needed by qiskit-aer
+# https://github.com/Qiskit/qiskit-aer/blob/main/CONTRIBUTING.md#building-with-cuda-support
+
+cuda-toolkit[cublas,cusolver,cusparse,cudart]>=12.9.1,<13.0.0
+cuquantum-cu12>=25.11.0
