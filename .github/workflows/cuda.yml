@@ -60,8 +60,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # python-version: ${{ fromJson(needs.detect-python-versions.outputs.matrix) }}
-        python-version: ["3.12"]
+        python-version: ${{ fromJson(needs.detect-python-versions.outputs.matrix) }}
 
     steps:
       - name: Checkout repository
