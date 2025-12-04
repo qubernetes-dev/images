@@ -29,18 +29,18 @@ RUN  apt-get purge -y software-properties-common && \
   apt-get autoremove -y && \
   rm -rf /var/lib/apt/lists/*
 
-RUN python${PYTHON_VERSION} -m ensurepip --upgrade
+# Create a venv for Python 3.12 and upgrade pip in there
+RUN python${PYTHON_VERSION} -m venv /opt/py${PYTHON_VERSION}
+RUN /opt/py${PYTHON_VERSION}/bin/pip install --upgrade pip setuptools wheel
 
-
-RUN python${PYTHON_VERSION} --version
-RUN pip3 --version
-
-# Create symbolic links for Python
-RUN ln -sf /usr/bin/python${PYTHON_VERSION} /usr/bin/python
-RUN ln -sf /usr/local/bin/pip3 /usr/local/bin/pip
+# Create symbolic links for Python in virtual environment
+RUN ln -sf /opt/py${PYTHON_VERSION}/bin/python /usr/local/bin/python
+RUN ln -sf /opt/py${PYTHON_VERSION}/bin/pip /usr/local/bin/pip
 
 RUN python --version
+RUN which python
 RUN pip --version
+RUN which pip
 
 COPY requirements-cu12.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
