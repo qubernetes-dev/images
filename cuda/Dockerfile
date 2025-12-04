@@ -3,7 +3,7 @@
 ARG PYTHON_VERSION="3.12"
 
 # Use an official NVIDIA CUDA runtime as a parent image
-FROM nvidia/cuda:12.8.1-base-ubuntu22.04
+FROM nvidia/cuda:12.8.1-base-ubuntu24.04
 ARG PYTHON_VERSION
 
 
