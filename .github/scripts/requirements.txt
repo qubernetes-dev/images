@@ -1,0 +1,1 @@
+cuquantum-python-cu12>=25.11.0
