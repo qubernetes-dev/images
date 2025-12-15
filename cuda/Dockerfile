@@ -29,13 +29,11 @@ RUN  apt-get purge -y software-properties-common && \
   apt-get autoremove -y && \
   rm -rf /var/lib/apt/lists/*
 
-# Create a venv for Python 3.12 and upgrade pip in there
+# Create a venv for Python and upgrade pip in there
 RUN python${PYTHON_VERSION} -m venv /opt/py${PYTHON_VERSION}
 RUN /opt/py${PYTHON_VERSION}/bin/pip install --upgrade pip setuptools wheel
 
-# Create symbolic links for Python in virtual environment
-RUN ln -sf /opt/py${PYTHON_VERSION}/bin/python /usr/local/bin/python
-RUN ln -sf /opt/py${PYTHON_VERSION}/bin/pip /usr/local/bin/pip
+ENV PATH="/opt/py${PYTHON_VERSION}/bin:$PATH"
 
 RUN python --version
 RUN which python
