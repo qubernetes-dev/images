@@ -18,6 +18,7 @@ SHELL ["/bin/bash", "-lc"]
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     git \
     build-essential \
     cmake \
@@ -31,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libblas-dev \
     libssl-dev \
     libffi-dev \
+    libsuitesparse-dev \
     python3 \
     python3-dev \
     python3-pip \
@@ -45,7 +47,10 @@ ENV PATH=/opt/venv/bin:${PATH}
 
 RUN python -m pip install --upgrade pip setuptools wheel build && \
     python -m pip install \
-      "conan<2.0.0"
+      pybind11 \
+      scikit-build \
+      "conan<2.0.0" \
+      numpy
 
 RUN conan config init && \
     python - <<'PY'
@@ -98,6 +103,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     libopenblas0-pthread \
+    libsuitesparseconfig5 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/venv && \
