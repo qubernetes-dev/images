@@ -66,12 +66,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
-            ROCM_BUILD_IMAGE=rocm/dev-ubuntu-22.04:6.2.4-complete
             ROCM_RUNTIME_IMAGE=rocm/dev-ubuntu-22.04:6.2.4
-            QISKIT_VERSION=2.3.1
-            QISKIT_AER_REF=0.17.2
-            AER_MPI=OFF
-            AER_ROCM_ARCH=gfx90a
 
       - name: Sign the published Docker image
         if: ${{ github.event_name != 'pull_request' }}

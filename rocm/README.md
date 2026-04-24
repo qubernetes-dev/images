@@ -1,20 +1,19 @@
 # Building a Qubernetes-Supported ROCm Image
 
-This image provides a ROCm-based environment for running Qiskit with a ROCm-built `qiskit-aer` wheel. It is intended as the ROCm counterpart to the CUDA image in this repository.
+This image provides a minimal ROCm-based Python environment for running workloads on ROCm-enabled systems.
+
+It is intended as the ROCm counterpart to the CUDA base image in this repository.
 
 ## Contents
 
-The image is built in two stages:
+The image contains:
 
-1. A **builder stage** that compiles a ROCm-enabled `qiskit-aer` wheel from source.
-2. A **runtime stage** that installs:
-   - `qiskit`
-   - the built `qiskit-aer-gpu-rocm` wheel
-   - a set of Qiskit-related Python dependencies
+- ROCm runtime/development environment from the upstream ROCm base image
+- Python 3
+- A Python virtual environment at `/opt/venv`
+- Upgraded `pip`, `setuptools`, and `wheel`
 
-This image is meant to provide the ROCm and Qiskit components as a base image. Additional python libraries can be installed on top of this image in Q8Sproject files.
-
-Default build parameters are defined in `rocm/Dockerfile` and in the GitHub Actions workflow.
+For Qiskit support, use the separate ROCm Qiskit image.
 
 ## Release a new version
 
