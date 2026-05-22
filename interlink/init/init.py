@@ -26,10 +26,35 @@ def log(message: str) -> None:
 
 # Helper function for getting env values safely
 def getenv(name: str, default: Optional[str] = None, required: bool = False) -> str:
+    FORBIDDEN_CHARS = {";","&","|","`","$","(",")","<",">","\n","\r",}
     value = os.environ.get(name, default)
     if required and (value is None or value == ""):
         raise RuntimeError(f"Required environment variable not set: {name}")
-    return value or ""
+    value = value or ""
+    found = sorted(ch for ch in FORBIDDEN_CHARS if ch in value)
+    if found:
+        shown = ", ".join(repr(ch) for ch in found)
+        raise RuntimeError(
+            f"Environment variable {name} contains forbidden shell-sensitive character(s): {shown}"
+        )
+    return value
+
+# Helper function that gets an int value from env and validates it as an int, and it being in an acceptable range (optional)
+def getenv_int(name: str, default: str, *, minimum: Optional[int] = None, maximum: Optional[int] = None) -> int:
+    raw = getenv(name, default)
+
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer, got: {raw!r}") from exc
+
+    if minimum is not None and value < minimum:
+        raise RuntimeError(f"{name} must be >= {minimum}, got: {value}")
+
+    if maximum is not None and value > maximum:
+        raise RuntimeError(f"{name} must be <= {maximum}, got: {value}")
+
+    return value
 
 
 # =============================================================================
@@ -39,33 +64,52 @@ def getenv(name: str, default: Optional[str] = None, required: bool = False) -> 
 SSH_KEY_SRC = Path("/keys/id_ed25519")
 SSH_DIR = Path("/root/.ssh")
 SSH_KEY = SSH_DIR / "id_ed25519"
-
-SHARED_PORT_FILE = Path(getenv("SHARED_PORT_FILE", "/runtime/remote-port"))
-SHARED_KNOWN_HOSTS_FILE = Path(getenv("SHARED_KNOWN_HOSTS_FILE", "/runtime/known_hosts"))
-
 LOCAL_PORT_SCRIPT = Path("/opt/interlink/scripts/port.sh")
 LOCAL_CONFIG_TEMPLATE = Path("/opt/interlink/config/SlurmConfig.template.yaml")
 LOCAL_BINARY_ROOT = Path("/opt/interlink/binaries")
-
-REMOTE_USER = getenv("REMOTE_USER", required=True)
-REMOTE_HOST = getenv("REMOTE_HOST", required=True)
-REMOTE_HOST_FINGERPRINT = getenv("REMOTE_HOST_FINGERPRINT", "")
-JUMP_HOSTS = getenv("JUMP_HOSTS", "")
-JUMP_HOST_FINGERPRINTS_RAW = getenv("JUMP_HOST_FINGERPRINTS", "[]")
-
-TRY_INTERVAL = int(getenv("TRY_INTERVAL", "60"))
-CONNECT_TIMEOUT = int(getenv("CONNECT_TIMEOUT", "10"))
-
-PLUGIN_START_PORT = int(getenv("PLUGIN_START_PORT", "4000"))
-PLUGIN_END_PORT = int(getenv("PLUGIN_END_PORT", "4100"))
-
-REMOTE_BASE_DIR = getenv("REMOTE_BASE_DIR", "interlink-slurm")
-DATA_ROOT_FOLDER = getenv("DATA_ROOT_FOLDER", ".local/interlink/jobs/")
-SHARED_FS = getenv("SHARED_FS", "true")
-
 # Unresolved placeholders that are still allowed to exist in the mounted Slurm
 # template before init renders the final config.
 ALLOWED_TEMPLATE_PLACEHOLDERS = {"PLUGIN_PORT"}
+
+# Placeholder values
+SHARED_PORT_FILE: Path
+SHARED_KNOWN_HOSTS_FILE: Path
+REMOTE_USER = ""
+REMOTE_HOST = ""
+REMOTE_HOST_FINGERPRINT = ""
+JUMP_HOSTS = ""
+JUMP_HOST_FINGERPRINTS_RAW = "[]"
+TRY_INTERVAL = 60
+CONNECT_TIMEOUT = 10
+PLUGIN_START_PORT = 4000
+PLUGIN_END_PORT = 4100
+REMOTE_BASE_DIR = "interlink-slurm"
+DATA_ROOT_FOLDER = ".local/interlink/jobs/"
+SHARED_FS = "true"
+
+# Loads relevant values from env into variables
+def load_config() -> None:
+    global  SHARED_PORT_FILE, SHARED_KNOWN_HOSTS_FILE, \
+            REMOTE_USER, REMOTE_HOST, REMOTE_HOST_FINGERPRINT, \
+            JUMP_HOSTS, JUMP_HOST_FINGERPRINTS_RAW, \
+            TRY_INTERVAL, CONNECT_TIMEOUT, \
+            PLUGIN_START_PORT, PLUGIN_END_PORT, \
+            REMOTE_BASE_DIR, DATA_ROOT_FOLDER, SHARED_FS
+    
+    SHARED_PORT_FILE = Path(getenv("SHARED_PORT_FILE", "/runtime/remote-port"))
+    SHARED_KNOWN_HOSTS_FILE = Path(getenv("SHARED_KNOWN_HOSTS_FILE", "/runtime/known_hosts"))
+    REMOTE_USER = getenv("REMOTE_USER", required=True)
+    REMOTE_HOST = getenv("REMOTE_HOST", required=True)
+    REMOTE_HOST_FINGERPRINT = getenv("REMOTE_HOST_FINGERPRINT", "")
+    JUMP_HOSTS = getenv("JUMP_HOSTS", "")
+    JUMP_HOST_FINGERPRINTS_RAW = getenv("JUMP_HOST_FINGERPRINTS", "[]")
+    TRY_INTERVAL = getenv_int("TRY_INTERVAL", "60", minimum=0)
+    CONNECT_TIMEOUT = getenv_int("CONNECT_TIMEOUT", "10", minimum=1)
+    PLUGIN_START_PORT = getenv_int("PLUGIN_START_PORT", "4000", minimum=1, maximum=65535)
+    PLUGIN_END_PORT = getenv_int("PLUGIN_END_PORT", "4100", minimum=1, maximum=65535)
+    REMOTE_BASE_DIR = getenv("REMOTE_BASE_DIR", "interlink-slurm")
+    DATA_ROOT_FOLDER = getenv("DATA_ROOT_FOLDER", ".local/interlink/jobs/")
+    SHARED_FS = getenv("SHARED_FS", "true")
 
 
 # =============================================================================
@@ -81,6 +125,51 @@ def validate_local_files() -> None:
         raise RuntimeError(f"Local port script not found: {LOCAL_PORT_SCRIPT}")
     if not LOCAL_CONFIG_TEMPLATE.is_file():
         raise RuntimeError(f"Local config template not found: {LOCAL_CONFIG_TEMPLATE}")
+
+# Validates that the path to where interlink configs etc are stored to
+# is valid to be used as a path relative to user home. Slurm configs are
+# always stored under user home directories.
+# Example 1:  "foo/bar" is valid, results in $HOME/foo/bar
+# Example 2: "/foo/bar" is not valid, results in $HOME//foo/bar
+# Example 3: "~/foo/bar" is not valid, results in $HOME/~/foo/bar
+def validate_relative_remote_path(name: str, value: str) -> None:
+    if not value:
+        raise RuntimeError(f"{name} must not be empty")
+
+    if value.startswith("/"):
+        raise RuntimeError(f"{name} must be relative, got absolute path: {value!r}")
+
+    if value.startswith("~"):
+        raise RuntimeError(f"{name} must not start with '~': {value!r}")
+
+    parts = Path(value).parts
+    if ".." in parts:
+        raise RuntimeError(f"{name} must not contain '..': {value!r}")
+
+    if not re.fullmatch(r"[A-Za-z0-9._/\-]+", value):
+        raise RuntimeError(
+            f"{name} contains unsupported characters. "
+            f"Use only letters, numbers, '.', '_', '-', and '/': {value!r}"
+        )
+    
+
+# Validates the user supplied path to where interlink job related items are stored when jobs are ran.
+def validate_remote_data_path(name: str, value: str) -> None:
+    if not value:
+        raise RuntimeError(f"{name} must not be empty")
+
+    if value.startswith("~"):
+        raise RuntimeError(f"{name} must not start with '~': {value!r}")
+
+    parts = Path(value).parts
+    if ".." in parts:
+        raise RuntimeError(f"{name} must not contain '..': {value!r}")
+
+    if not re.fullmatch(r"[A-Za-z0-9._/\-]+", value):
+        raise RuntimeError(
+            f"{name} contains unsupported characters. "
+            f"Use only letters, numbers, '.', '_', '-', and '/': {value!r}"
+        )
 
 
 # Validates that a given json array (given as a raw string) is actually
@@ -99,10 +188,63 @@ def validate_json_array(name: str, raw: str) -> List[str]:
     return value
 
 
+# Helper function that validates a fingerpring
+def validate_fingerprint(name: str, value: str) -> None:
+    if not re.fullmatch(r"SHA256:[A-Za-z0-9+/=]+", value):
+        raise RuntimeError(f"{name} must look like an OpenSSH SHA256 fingerprint, got: {value!r}")
+    
+
+# Helper function that validates a boolean string
+def validate_bool_string(name: str, value: str) -> None:
+    if value not in {"true", "false"}:
+        raise RuntimeError(f"{name} must be 'true' or 'false', got: {value!r}")
+    
+
+# Helper that validates that REMOTE_HOST is in proper format
+def validate_remote_host_format() -> None:
+    if not REMOTE_HOST:
+        raise RuntimeError("REMOTE_HOST must not be empty")
+
+    if "@" in REMOTE_HOST:
+        raise RuntimeError(
+            "REMOTE_HOST must not include a username. "
+            "Set REMOTE_USER separately and use REMOTE_HOST as the host only."
+        )
+
+    if "/" in REMOTE_HOST:
+        raise RuntimeError(f"REMOTE_HOST must be a host name or IP address, got: {REMOTE_HOST!r}")
+
+    if ":" in REMOTE_HOST or REMOTE_HOST.startswith("["):
+        raise RuntimeError(
+            "REMOTE_HOST must not include SSH port or IPv6 syntax. "
+            "Use a plain DNS name or IPv4 address."
+        )
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", REMOTE_HOST):
+        raise RuntimeError(
+            f"REMOTE_HOST contains unsupported characters: {REMOTE_HOST!r}"
+        )
+    
+
+# Helper that validates username (only the format, not that user exists etc)
+def validate_remote_user_format() -> None:
+    if not REMOTE_USER:
+        raise RuntimeError("REMOTE_USER must not be empty")
+
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", REMOTE_USER):
+        raise RuntimeError(
+            f"REMOTE_USER contains unsupported characters: {REMOTE_USER!r}"
+        )
+
 # Validates all the different configuration values that are needed, and returns
 # a list of jump host fingerprints if any were provided.
 def validate_config() -> List[str]:
     validate_local_files()
+    validate_remote_user_format()
+    validate_remote_host_format()
+    validate_bool_string("SHARED_FS", SHARED_FS)
+    validate_relative_remote_path("REMOTE_BASE_DIR", REMOTE_BASE_DIR)
+    validate_remote_data_path("DATA_ROOT_FOLDER", DATA_ROOT_FOLDER)
 
     if PLUGIN_START_PORT > PLUGIN_END_PORT:
         raise RuntimeError("PLUGIN_START_PORT must be <= PLUGIN_END_PORT")
@@ -111,7 +253,15 @@ def validate_config() -> List[str]:
         "JUMP_HOST_FINGERPRINTS", JUMP_HOST_FINGERPRINTS_RAW
     )
 
+    if REMOTE_HOST_FINGERPRINT:
+        validate_fingerprint("REMOTE_HOST_FINGERPRINT", REMOTE_HOST_FINGERPRINT)
+
+    for idx, fp in enumerate(jump_host_fingerprints):
+        validate_fingerprint(f"JUMP_HOST_FINGERPRINTS[{idx}]", fp)
+
     jump_hosts = [item.strip() for item in JUMP_HOSTS.split(",") if item.strip()]
+    if jump_host_fingerprints and not jump_hosts:
+        raise RuntimeError("JUMP_HOST_FINGERPRINTS was provided but JUMP_HOSTS is empty")
     if jump_hosts and jump_host_fingerprints and len(jump_hosts) != len(jump_host_fingerprints):
         raise RuntimeError("JUMP_HOSTS and JUMP_HOST_FINGERPRINTS must have the same number of entries")
 
@@ -160,12 +310,26 @@ def run_cmd(
     check: bool = True,
     text: bool = True,
 ) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        argv,
-        check=check,
-        capture_output=capture,
-        text=text,
-    )
+    try:
+        return subprocess.run(
+            argv,
+            check=check,
+            capture_output=capture,
+            text=text,
+        )
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else ""
+        stdout = exc.stdout.strip() if exc.stdout else ""
+        details = []
+        if stdout:
+            details.append(f"stdout: {stdout}")
+        if stderr:
+            details.append(f"stderr: {stderr}")
+        suffix = "; ".join(details)
+        raise RuntimeError(
+            f"Command failed with exit code {exc.returncode}: {shlex.join(argv)}"
+            + (f" ({suffix})" if suffix else "")
+        ) from exc
 
 
 # Helper function for running a command over ssh on a remote host.
@@ -304,7 +468,7 @@ def build_known_hosts_content(jump_host_fingerprints: List[str]) -> str:
             log(f"Verified fingerprint for host '{spec}'.")
         else:
             lines_out.append(scanned[0])
-            log(f"No fingerprint provided for host '{spec}', using scanned host key.")
+            log(f"No fingerprint provided for host '{spec}', using scanned host key.") # TODO: Better solution for this.
 
     return "\n".join(lines_out) + "\n"
 
@@ -375,18 +539,26 @@ fi
 # in remote host.
 def ensure_remote_dirs() -> None:
     log("Ensuring remote directory structure exists...")
-    command = f"""
-set -e
-BASE_DIR="$HOME/{REMOTE_BASE_DIR}"
-DATA_ROOT_RAW={single_quote(DATA_ROOT_FOLDER)}
-eval "DATA_ROOT_EXPANDED=\\"$DATA_ROOT_RAW\\""
-case "$DATA_ROOT_EXPANDED" in
-  /*) DATA_ROOT="$DATA_ROOT_EXPANDED" ;;
-  *)  DATA_ROOT="$HOME/$DATA_ROOT_EXPANDED" ;;
-esac
 
-mkdir -p "$BASE_DIR/bin" "$BASE_DIR/config" "$BASE_DIR/scripts" "$BASE_DIR/run" "$DATA_ROOT"
-"""
+    command = f"""
+        set -e
+
+        REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+        DATA_ROOT_RAW={single_quote(DATA_ROOT_FOLDER)}
+
+        BASE_DIR="$HOME/$REMOTE_BASE_DIR_VALUE"
+
+        case "$DATA_ROOT_RAW" in
+        /*)
+            DATA_ROOT="$DATA_ROOT_RAW"
+            ;;
+        *)
+            DATA_ROOT="$HOME/$DATA_ROOT_RAW"
+            ;;
+        esac
+
+        mkdir -p "$BASE_DIR/bin" "$BASE_DIR/config" "$BASE_DIR/scripts" "$BASE_DIR/run" "$DATA_ROOT"
+    """
     run_ssh(command, capture=True, check=True)
     log("Remote directory structure ensured.")
 
@@ -417,39 +589,69 @@ def copy_remote_artifacts(binary_path: Path) -> None:
     copy_to_remote(LOCAL_PORT_SCRIPT, f"{REMOTE_BASE_DIR}/scripts/port.sh")
     run_ssh(
         f"""
-set -e
-chmod 755 "$HOME/{REMOTE_BASE_DIR}/bin/slurm-sd"
-chmod 755 "$HOME/{REMOTE_BASE_DIR}/scripts/port.sh"
-""",
+        set -e
+        REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+        chmod 755 "$HOME/$REMOTE_BASE_DIR_VALUE/bin/slurm-sd"
+        chmod 755 "$HOME/$REMOTE_BASE_DIR_VALUE/scripts/port.sh"
+        """,
         capture=True,
         check=True,
     )
     log("Remote artifacts copied.")
 
 
+# Helper function to validate that the port returned by port.sh script is a valid one
+def validate_selected_port(port: str) -> str:
+    if not re.fullmatch(r"[0-9]+", port):
+        raise RuntimeError(f"Invalid selected port from port script: {port!r}")
+
+    n = int(port)
+
+    if not (1 <= n <= 65535):
+        raise RuntimeError(f"Selected port outside valid TCP range: {n}")
+
+    if not (PLUGIN_START_PORT <= n <= PLUGIN_END_PORT):
+        raise RuntimeError(
+            f"Selected port {n} outside configured range "
+            f"{PLUGIN_START_PORT}-{PLUGIN_END_PORT}"
+        )
+
+    return port
+
+
 # Runs the port.sh script on remote host, and gets the selected port. Raises a runtime
 # error upon failure.
 def select_remote_port() -> str:
     preferred = read_shared_port_file()
+
     if preferred:
+        preferred = validate_selected_port(preferred)
         log(f"Selecting remote port with preferred port {preferred}")
-        command = (
-            f"START_PORT={PLUGIN_START_PORT} END_PORT={PLUGIN_END_PORT} "
-            f"PREFERRED_PORT={single_quote(preferred)} "
-            f"\"$HOME/{REMOTE_BASE_DIR}/scripts/port.sh\""
-        )
+        command = f"""
+            set -e
+            REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+            START_PORT={PLUGIN_START_PORT} \\
+            END_PORT={PLUGIN_END_PORT} \\
+            PREFERRED_PORT={single_quote(preferred)} \\
+            "$HOME/$REMOTE_BASE_DIR_VALUE/scripts/port.sh"
+        """
     else:
         log("Selecting remote port without preferred port")
-        command = (
-            f"START_PORT={PLUGIN_START_PORT} END_PORT={PLUGIN_END_PORT} "
-            f"\"$HOME/{REMOTE_BASE_DIR}/scripts/port.sh\""
-        )
+        command = f"""
+            set -e
+            REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+            START_PORT={PLUGIN_START_PORT} \\
+            END_PORT={PLUGIN_END_PORT} \\
+            "$HOME/$REMOTE_BASE_DIR_VALUE/scripts/port.sh"
+        """
 
     proc = run_ssh(command, capture=True, check=True)
     port = proc.stdout.strip().replace("\r", "")
+
     if not port:
         raise RuntimeError("Port selection returned an empty result")
-    return port
+
+    return validate_selected_port(port)
 
 
 # =============================================================================
@@ -506,25 +708,29 @@ def copy_remote_config(rendered_config: str) -> None:
 # Starts the plugin on the remote host, with logging into a file enabled.
 def start_plugin() -> None:
     log("Starting remote slurm-sd...")
+
     command = f"""
-set -e
-BIN_PATH="$HOME/{REMOTE_BASE_DIR}/bin/slurm-sd"
-CONFIG_PATH="$HOME/{REMOTE_BASE_DIR}/config/SlurmConfig.yaml"
-LOG_PATH="$HOME/{REMOTE_BASE_DIR}/run/slurm.log"
-SHARED_FS_VALUE={single_quote(SHARED_FS)}
+        set -e
 
-if [ ! -x "$BIN_PATH" ]; then
-  echo "missing binary" >&2
-  exit 1
-fi
+        REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+        SHARED_FS_VALUE={single_quote(SHARED_FS)}
 
-if [ ! -f "$CONFIG_PATH" ]; then
-  echo "missing config" >&2
-  exit 1
-fi
+        BIN_PATH="$HOME/$REMOTE_BASE_DIR_VALUE/bin/slurm-sd"
+        CONFIG_PATH="$HOME/$REMOTE_BASE_DIR_VALUE/config/SlurmConfig.yaml"
+        LOG_PATH="$HOME/$REMOTE_BASE_DIR_VALUE/run/slurm.log"
 
-nohup env SHARED_FS="$SHARED_FS_VALUE" SLURMCONFIGPATH="$CONFIG_PATH" "$BIN_PATH" > "$LOG_PATH" 2>&1 &
-"""
+        if [ ! -x "$BIN_PATH" ]; then
+        echo "missing binary: $BIN_PATH" >&2
+        exit 1
+        fi
+
+        if [ ! -f "$CONFIG_PATH" ]; then
+        echo "missing config: $CONFIG_PATH" >&2
+        exit 1
+        fi
+
+        nohup env SHARED_FS="$SHARED_FS_VALUE" SLURMCONFIGPATH="$CONFIG_PATH" "$BIN_PATH" > "$LOG_PATH" 2>&1 &
+    """
     run_ssh(command, capture=True, check=True)
     log("Remote slurm-sd start command issued.")
 
@@ -534,6 +740,11 @@ def check_plugin_health(port: str) -> bool:
     if not port:
         return False
 
+    try:
+        port = validate_selected_port(port)
+    except RuntimeError:
+        return False
+    
     command = (
         f"curl -sf -X GET http://127.0.0.1:{port}/status "
         f"-H 'Content-Type: application/json' "
@@ -542,7 +753,7 @@ def check_plugin_health(port: str) -> bool:
     try:
         run_ssh(command, capture=True, check=True)
         return True
-    except subprocess.CalledProcessError:
+    except RuntimeError:
         return False
 
 
@@ -559,9 +770,11 @@ def check_plugin_health(port: str) -> bool:
 # 4. Render the final slurm config file and send it to remote host
 # 5. Start the plugin on remote host, and check after a few seconds that its actually working.
 def main() -> int:
-    jump_host_fingerprints = validate_config()
     
     try:
+        load_config()
+        jump_host_fingerprints = validate_config()
+
         log("Init container repair/setup cycle starting.")
         prepare_ssh_key()
         validate_mounted_template()

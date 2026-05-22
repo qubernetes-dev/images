@@ -1,12 +1,30 @@
 #!/bin/sh
 set -eu
 
+# TODO: The script can still fail if some process binds the free port between the time the free
+# port is found, and slurm-sd binds it
+
 # Expected enviroment variables. Defaults are set so the port range will be [4000,4100] 
 # with no preferred port set. This script is perfectly usable without separately setting the
 # enviroment variables, as the port 4000 is the preferred port for using this script anyway.
 START_PORT="${START_PORT:-4000}"
 END_PORT="${END_PORT:-4100}"
 PREFERRED_PORT="${PREFERRED_PORT:-}"
+
+# Helper function for validating port is in permitted range
+port_is_valid_tcp() {
+  port="$1"
+
+  if ! is_integer "$port"; then
+    return 1
+  fi
+
+  if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    return 1
+  fi
+
+  return 0
+}
 
 # Helper function for logging errors
 log_err() {
@@ -99,8 +117,8 @@ find_available_port() {
   current="$START_PORT"
 
   if [ -n "$PREFERRED_PORT" ]; then
-    if ! is_integer "$PREFERRED_PORT"; then
-      log_err "ERROR: PREFERRED_PORT is not an integer: $PREFERRED_PORT"
+    if ! port_is_valid_tcp "$PREFERRED_PORT"; then
+      log_err "ERROR: PREFERRED_PORT must be an integer between 1 and 65535: $PREFERRED_PORT"
       exit 2
     fi
 
@@ -125,13 +143,13 @@ find_available_port() {
 # Main loop. Check that given enviroment variables are valid numbers (START_PORT and END_PORT)
 # and then start the search loop.
 main() {
-  if ! is_integer "$START_PORT"; then
-    log_err "ERROR: START_PORT is not an integer: $START_PORT"
+  if ! port_is_valid_tcp "$START_PORT"; then
+    log_err "ERROR: START_PORT must be an integer between 1 and 65535: $START_PORT"
     exit 2
   fi
 
-  if ! is_integer "$END_PORT"; then
-    log_err "ERROR: END_PORT is not an integer: $END_PORT"
+  if ! port_is_valid_tcp "$END_PORT"; then
+    log_err "ERROR: END_PORT must be an integer between 1 and 65535: $END_PORT"
     exit 2
   fi
 
