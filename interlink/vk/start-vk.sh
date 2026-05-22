@@ -28,6 +28,13 @@ require_value() {
   fi
 }
 
+validate_vk_bin() {
+  if [ ! -x "$VK_BIN" ]; then
+    log "ERROR: virtual-kubelet binary not found or not executable: $VK_BIN"
+    exit 1
+  fi
+}
+
 k8s_token() {
   cat "$K8S_TOKEN_FILE"
 }
@@ -123,6 +130,7 @@ EOF
 
 main() {
   require_value "VIRTUAL_NODE_NAME" "$VIRTUAL_NODE_NAME"
+  validate_vk_bin
   validate_config_file
   validate_incluster_auth_inputs
   generate_kubeconfig
