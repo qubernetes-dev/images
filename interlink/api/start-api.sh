@@ -40,6 +40,55 @@ require_value() {
   fi
 }
 
+require_positive_int() {
+  key="$1"
+  value="$2"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      log "ERROR: $key must be a positive integer, got: $value"
+      exit 1
+      ;;
+  esac
+
+  if [ "$value" -le 0 ]; then
+    log "ERROR: $key must be greater than zero, got: $value"
+    exit 1
+  fi
+}
+
+valid_port() {
+  port="$1"
+
+  case "$port" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+
+  [ "$port" -ge 1 ] && [ "$port" -le 65535 ]
+}
+
+validate_k8s_access() {
+  require_value "KUBERNETES_SERVICE_HOST" "${KUBERNETES_SERVICE_HOST:-}"
+  require_value "KUBERNETES_SERVICE_PORT" "${KUBERNETES_SERVICE_PORT:-}"
+
+  if [ ! -f "$K8S_TOKEN_FILE" ]; then
+    log "ERROR: Kubernetes token file not found: $K8S_TOKEN_FILE"
+    exit 1
+  fi
+
+  if [ ! -f "$K8S_CA_FILE" ]; then
+    log "ERROR: Kubernetes CA file not found: $K8S_CA_FILE"
+    exit 1
+  fi
+
+  if [ ! -f "$K8S_NS_FILE" ]; then
+    log "ERROR: Kubernetes namespace file not found: $K8S_NS_FILE"
+    exit 1
+  fi
+}
+
 k8s_namespace() {
   cat "$K8S_NS_FILE"
 }
@@ -63,7 +112,10 @@ delete_own_pod() {
 
   log "Deleting pod '$pod_name' in namespace '$namespace' to trigger recreation"
 
-  curl -fsS -X DELETE \
+  curl -fsS \
+    --connect-timeout 60 \
+    --max-time 120 \
+    -X DELETE \
     --cacert "$K8S_CA_FILE" \
     -H "Authorization: Bearer $(k8s_token)" \
     "$(k8s_api_base)/api/v1/namespaces/$namespace/pods/$pod_name" >/dev/null
@@ -77,8 +129,12 @@ prepare_ssh() {
     exit 1
   fi
 
-  if [ ! -f "$SHARED_KNOWN_HOSTS_FILE" ]; then
-    log "ERROR: shared known_hosts not found yet: $SHARED_KNOWN_HOSTS_FILE"
+  # if [ ! -f "$SHARED_KNOWN_HOSTS_FILE" ]; then
+  #   log "ERROR: shared known_hosts not found yet: $SHARED_KNOWN_HOSTS_FILE"
+  #   exit 1
+  # fi
+  if [ ! -s "$SHARED_KNOWN_HOSTS_FILE" ]; then
+    log "ERROR: shared known_hosts is missing or empty: $SHARED_KNOWN_HOSTS_FILE"
     exit 1
   fi
 
@@ -91,19 +147,23 @@ prepare_ssh() {
 }
 
 wait_for_shared_files() {
-  while [ ! -f "$SHARED_KNOWN_HOSTS_FILE" ]; do
+  while [ ! -s "$SHARED_KNOWN_HOSTS_FILE" ]; do
     log "INFO: waiting for shared known_hosts file"
     sleep 2
   done
 
-  while [ ! -f "$SHARED_PORT_FILE" ]; do
+  while [ ! -s "$SHARED_PORT_FILE" ]; do
     log "INFO: waiting for shared remote port file"
     sleep 2
   done
 }
 
 read_remote_port() {
-  if [ ! -f "$SHARED_PORT_FILE" ]; then
+  # if [ ! -f "$SHARED_PORT_FILE" ]; then
+  #   return 1
+  # fi
+  if [ ! -s "$SHARED_PORT_FILE" ]; then
+    log "ERROR: shared port file is missing or empty: $SHARED_PORT_FILE"
     return 1
   fi
   tr -d '\r\n' < "$SHARED_PORT_FILE"
@@ -173,12 +233,13 @@ start_api() {
 check_remote_plugin_health() {
   remote_port="$1"
 
-  if [ -z "$remote_port" ]; then
+  # if [ -z "$remote_port" ]; then
+  if ! valid_port "$remote_port"; then
     return 1
   fi
 
   run_ssh \
-    "curl -sf -X GET http://127.0.0.1:${remote_port}/status \
+    "curl -sf --connect-timeout 30 --max-time 60 -X GET http://127.0.0.1:${remote_port}/status \
      -H 'Content-Type: application/json' \
      -d '[]' > /dev/null" >/dev/null 2>&1
 }
@@ -194,9 +255,10 @@ monitor_remote_plugin() {
     fi
 
     remote_port="$(read_remote_port || true)"
-    if [ -z "$remote_port" ]; then
+    
+    if ! valid_port "$remote_port"; then
       failures=$((failures + 1))
-      log "WARN: shared remote port is missing or empty ($failures/$API_FAILURE_THRESHOLD)"
+      log "WARN: shared remote port is missing or invalid: '$remote_port' ($failures/$API_FAILURE_THRESHOLD)"
     elif check_remote_plugin_health "$remote_port"; then
       failures=0
     else
@@ -218,6 +280,12 @@ main() {
   require_value "REMOTE_USER" "$REMOTE_USER"
   require_value "REMOTE_HOST" "$REMOTE_HOST"
 
+  require_positive_int "API_HEALTHCHECK_INTERVAL" "$API_HEALTHCHECK_INTERVAL"
+  require_positive_int "API_FAILURE_THRESHOLD" "$API_FAILURE_THRESHOLD"
+  require_positive_int "CONNECT_TIMEOUT" "$CONNECT_TIMEOUT"
+
+  validate_k8s_access
+
   validate_config_file
   wait_for_shared_files
   prepare_ssh
@@ -225,5 +293,16 @@ main() {
   start_api
   monitor_remote_plugin
 }
+
+cleanup() {
+  log "Shutting down"
+
+  if [ -n "$API_PID" ] && kill -0 "$API_PID" 2>/dev/null; then
+    kill "$API_PID" 2>/dev/null || true
+    wait "$API_PID" 2>/dev/null || true
+  fi
+}
+
+trap cleanup INT TERM EXIT
 
 main "$@"
