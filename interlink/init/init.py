@@ -14,8 +14,13 @@ from typing import List, Optional, Tuple
 
 
 
-# TODO: Currently allows one plugin per user, should multiple be allowed?
-# (Multiple plugins running on same user at same time might break each other with bad configurations)
+# TODO: Currently this system is designed to support only ONE interlink plugin per tenant/per hpc user/
+# per login server.
+# The limiting part here is that the init containers script kills the given hpc users existing slurm-sd
+# process on the hpc, if any. That means an hpc user cant have more than one slurm-sd process running at
+# a time on a given login server.
+# It might be possible to run multiple plugins on the same tenant though, but its not well tested. It might
+# work, as long as the nodenames used for virtual nodes are unique.
 
 
 # Helper function for logging messages with timestamps

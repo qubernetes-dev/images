@@ -2,7 +2,7 @@
 set -eu
 
 # TODO: The script can still fail if some process binds the free port between the time the free
-# port is found, and slurm-sd binds it
+# port is found, and slurm-sd binds it. This is an edge case that is very unlikely to ever happen.
 
 # Expected enviroment variables. Defaults are set so the port range will be [4000,4100] 
 # with no preferred port set. This script is perfectly usable without separately setting the
