@@ -1,4 +1,5 @@
 FROM golang:1.26-alpine AS builder
+ENV GOTOOLCHAIN=auto
 
 ARG INTERLINK_REPO=https://github.com/interlink-hq/interLink.git
 ARG INTERLINK_REF=main
@@ -9,6 +10,8 @@ WORKDIR /src
 RUN git clone --depth 1 --branch "${INTERLINK_REF}" "${INTERLINK_REPO}" interLink
 
 WORKDIR /src/interLink
+COPY namespace-scoping.patch /tmp/namespace-scoping.patch
+RUN git apply /tmp/namespace-scoping.patch
 RUN make all && test -f bin/vk
 
 FROM alpine:3.19
