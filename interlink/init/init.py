@@ -518,18 +518,23 @@ def resolve_local_binary_for_arch(arch: str) -> Path:
     raise RuntimeError(f"No local binary mapping for architecture: {arch}")
 
 
-# Runs a shell script for killing any running instance of slurm-sd, that are running under
-# current users name in the remote host
+# Runs a shell script for killing any running instance of slurm-sd started by THIS
+# connection, that are running under current user's name in the remote host. Matches
+# on the full command line (not just the process name), scoped to this connection's own
+# REMOTE_BASE_DIR install path, so this never touches another connection's slurm-sd
+# owned by the same remote user (mirrors delete-interlink-pod.py's remote-base-dir mode).
 def kill_remote_plugin_if_running() -> None:
     log("Checking for existing remote slurm-sd processes to kill...")
-    command = r"""
+    command = f"""
 set -e
-PIDS="$(ps -u "$(id -un)" -o pid= -o comm= | awk '$2=="slurm-sd"{print $1}')"
+REMOTE_BASE_DIR_VALUE={single_quote(REMOTE_BASE_DIR)}
+NEEDLE="$HOME/$REMOTE_BASE_DIR_VALUE/bin/slurm-sd"
+PIDS="$(ps -u "$(id -un)" -o pid= -o comm= -o args= | awk -v needle="$NEEDLE" '$2=="slurm-sd" && index($0, needle)>0 {{print $1}}')"
 if [ -n "$PIDS" ]; then
   echo "Found existing slurm-sd process(es): $PIDS"
   echo "$PIDS" | xargs kill || true
   sleep 2
-  STILL="$(ps -u "$(id -un)" -o pid= -o comm= | awk '$2=="slurm-sd"{print $1}')"
+  STILL="$(ps -u "$(id -un)" -o pid= -o comm= -o args= | awk -v needle="$NEEDLE" '$2=="slurm-sd" && index($0, needle)>0 {{print $1}}')"
   if [ -n "$STILL" ]; then
     echo "Force killing remaining slurm-sd process(es): $STILL"
     echo "$STILL" | xargs kill -9 || true
