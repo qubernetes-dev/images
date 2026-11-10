@@ -1,4 +1,5 @@
 FROM golang:1.26-alpine AS builder
+ENV GOTOOLCHAIN=auto
 
 ARG INTERLINK_SLURM_PLUGIN_REPO=https://github.com/interlink-hq/interlink-slurm-plugin.git
 ARG INTERLINK_SLURM_PLUGIN_REF=main

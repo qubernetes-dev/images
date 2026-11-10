@@ -1,0 +1,36 @@
+diff --git a/cmd/virtual-kubelet/main.go b/cmd/virtual-kubelet/main.go
+index c3dc0011..549cedd5 100644
+--- a/cmd/virtual-kubelet/main.go
++++ b/cmd/virtual-kubelet/main.go
+@@ -420,7 +420,7 @@ func setupKubernetesClient(ctx context.Context) (*rest.Config, *kubernetes.Clien
+ }
+ 
+ // setupInformers creates and starts the Kubernetes informers
+-func setupInformers(ctx context.Context, localClient *kubernetes.Clientset, nodeName string) (informers.SharedInformerFactory, informers.SharedInformerFactory, chan struct{}) {
++func setupInformers(ctx context.Context, localClient *kubernetes.Clientset, nodeName string, namespace string) (informers.SharedInformerFactory, informers.SharedInformerFactory, chan struct{}) {
+ 	resync, err := time.ParseDuration("30s")
+ 	if err != nil {
+ 		log.G(ctx).Fatal(err)
+@@ -430,11 +430,13 @@ func setupInformers(ctx context.Context, localClient *kubernetes.Clientset, node
+ 		localClient,
+ 		resync,
+ 		PodInformerFilter(nodeName),
++		informers.WithNamespace(namespace),
+ 	)
+ 
+ 	scmInformerFactory := informers.NewSharedInformerFactoryWithOptions(
+ 		localClient,
+ 		resync,
++		informers.WithNamespace(namespace),
+ 	)
+ 
+ 	// stop signal for the informer
+@@ -543,7 +545,7 @@ func main() {
+ 	eb := record.NewBroadcaster()
+ 	EventRecorder := eb.NewRecorder(scheme.Scheme, v1.EventSource{Component: path.Join(cfg.NodeName, "pod-controller")})
+ 
+-	podInformerFactory, scmInformerFactory, stopper := setupInformers(ctx, localClient, cfg.NodeName)
++	podInformerFactory, scmInformerFactory, stopper := setupInformers(ctx, localClient, cfg.NodeName, interLinkConfig.Namespace)
+ 	defer close(stopper)
+ 
+ 	podInformer := podInformerFactory.Core().V1().Pods().Informer()
