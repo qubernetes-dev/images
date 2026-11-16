@@ -1,3 +1,6 @@
 [submodule "minio/src"]
 	path = minio/src
 	url = https://github.com/minio/minio.git
+[submodule "minio/mc-src"]
+	path = minio/mc-src
+	url = https://github.com/minio/mc.git

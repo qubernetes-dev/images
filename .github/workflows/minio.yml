@@ -3,9 +3,7 @@ run-name: MinIO Image Build and Push triggered by ${{ github.ref_name }} on ${{ 
 
 on:
   push:
-    # MinIO's own releases are date-stamped (RELEASE.YYYY-MM-DDTHH-MM-SSZ), not semver, so unlike
-    # this repo's other images the tag reuses that format verbatim instead of vX.Y.Z.
-    tags: [ 'minio-RELEASE.*Z', 'minio-RELEASE.*Z-r*' ]
+    tags: [ 'minio-src-RELEASE.*Z', 'minio-src-RELEASE.*Z-r*' ]
 
   pull_request:
     branches: [ "main" ]
@@ -14,7 +12,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/minio
+  IMAGE_NAME: ${{ github.repository_owner }}/minio-src
 
 jobs:
   build:
@@ -55,9 +53,61 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=match,pattern=minio-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-r[0-9]+),group=1 # revisioned tags, e.g. RELEASE.2025-04-22T22-12-26Z-r1
-            type=match,pattern=minio-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z),group=1,enable=${{ !contains(github.ref_name, '-r') }} # base tags, e.g. RELEASE.2025-04-22T22-12-26Z
+            type=match,pattern=minio-src-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-r[0-9]+)$,group=1 # revisioned tags, e.g. RELEASE.2025-04-22T22-12-26Z-r1
+            type=match,pattern=minio-src-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z)$,group=1 # base tags, e.g. RELEASE.2025-04-22T22-12-26Z
             type=sha
+
+      - name: Compute MinIO build metadata
+        id: minio-meta
+        run: |
+          COMMIT_ID="$(git -C minio/src rev-parse HEAD)"
+          echo "commit_id=$COMMIT_ID" >> "$GITHUB_OUTPUT"
+          echo "short_commit_id=${COMMIT_ID:0:12}" >> "$GITHUB_OUTPUT"
+
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            RELEASE_TAG="${GITHUB_REF_NAME#minio-}"
+          else
+            RELEASE_TAG="DEVELOPMENT.${COMMIT_ID:0:12}"
+          fi
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+          # MINIO_VERSION must be RFC3339
+          DATE_PART="${RELEASE_TAG#RELEASE.}"
+          DATE_PART="${DATE_PART%%-r*}"
+          if [[ "$DATE_PART" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$ ]]; then
+            VERSION="$(echo "$DATE_PART" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2})-([0-9]{2})-([0-9]{2}Z)$/\1:\2:\3/')"
+            COPYRIGHT_YEAR="${DATE_PART:0:4}"
+          else
+            VERSION="DEVELOPMENT.GOGET"
+            COPYRIGHT_YEAR="$(date -u +%Y)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "copyright_year=$COPYRIGHT_YEAR" >> "$GITHUB_OUTPUT"
+
+      - name: Compute mc build metadata
+        id: mc-meta
+        run: |
+          COMMIT_ID="$(git -C minio/mc-src rev-parse HEAD)"
+          echo "commit_id=$COMMIT_ID" >> "$GITHUB_OUTPUT"
+          echo "short_commit_id=${COMMIT_ID:0:12}" >> "$GITHUB_OUTPUT"
+
+          RELEASE_TAG="$(git -C minio/mc-src describe --tags --exact-match 2>/dev/null || true)"
+          if [[ -z "$RELEASE_TAG" ]]; then
+            RELEASE_TAG="DEVELOPMENT.${COMMIT_ID:0:12}"
+          fi
+          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+          DATE_PART="${RELEASE_TAG#RELEASE.}"
+          DATE_PART="${DATE_PART%%-r*}"
+          if [[ "$DATE_PART" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$ ]]; then
+            VERSION="$(echo "$DATE_PART" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2})-([0-9]{2})-([0-9]{2}Z)$/\1:\2:\3/')"
+            COPYRIGHT_YEAR="${DATE_PART:0:4}"
+          else
+            VERSION="DEVELOPMENT.GOGET"
+            COPYRIGHT_YEAR="$(date -u +%Y)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "copyright_year=$COPYRIGHT_YEAR" >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         id: build-and-push
@@ -67,6 +117,18 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MINIO_VERSION=${{ steps.minio-meta.outputs.version }}
+            MINIO_RELEASE_TAG=${{ steps.minio-meta.outputs.release_tag }}
+            MINIO_COMMIT_ID=${{ steps.minio-meta.outputs.commit_id }}
+            MINIO_SHORT_COMMIT_ID=${{ steps.minio-meta.outputs.short_commit_id }}
+            MINIO_COPYRIGHT_YEAR=${{ steps.minio-meta.outputs.copyright_year }}
+            RELEASE=${{ steps.minio-meta.outputs.release_tag }}
+            MC_VERSION=${{ steps.mc-meta.outputs.version }}
+            MC_RELEASE_TAG=${{ steps.mc-meta.outputs.release_tag }}
+            MC_COMMIT_ID=${{ steps.mc-meta.outputs.commit_id }}
+            MC_SHORT_COMMIT_ID=${{ steps.mc-meta.outputs.short_commit_id }}
+            MC_COPYRIGHT_YEAR=${{ steps.mc-meta.outputs.copyright_year }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
