@@ -3,7 +3,7 @@ run-name: MinIO Image Build and Push triggered by ${{ github.ref_name }} on ${{ 
 
 on:
   push:
-    tags: [ 'minio-src-RELEASE.*Z', 'minio-src-RELEASE.*Z-r*' ]
+    tags: [ 'minio-v*.*.*', 'minio-v*.*.*-r*' ]
 
   pull_request:
     branches: [ "main" ]
@@ -53,8 +53,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=match,pattern=minio-src-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z-r[0-9]+)$,group=1 # revisioned tags, e.g. RELEASE.2025-04-22T22-12-26Z-r1
-            type=match,pattern=minio-src-(RELEASE\.[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z)$,group=1 # base tags, e.g. RELEASE.2025-04-22T22-12-26Z
+            type=match,pattern=minio-v([0-9]+\.[0-9]+\.[0-9]+-r[0-9]+),group=1 # Only matches revisioned tags, e.g. 1.2.3-r1
+            type=match,pattern=minio-v([0-9]+\.[0-9]+\.[0-9]+),group=1,enable=${{ startsWith(github.ref_name, 'minio-v') && !contains(github.ref_name, '-r') }} # Only matches base tags, e.g. 1.2.3
             type=sha
 
       - name: Compute MinIO build metadata
@@ -64,9 +64,9 @@ jobs:
           echo "commit_id=$COMMIT_ID" >> "$GITHUB_OUTPUT"
           echo "short_commit_id=${COMMIT_ID:0:12}" >> "$GITHUB_OUTPUT"
 
-          if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            RELEASE_TAG="${GITHUB_REF_NAME#minio-}"
-          else
+          git -C minio/src fetch --tags --quiet 2>/dev/null || true
+          RELEASE_TAG="$(git -C minio/src describe --tags --exact-match 2>/dev/null || true)"
+          if [[ -z "$RELEASE_TAG" ]]; then
             RELEASE_TAG="DEVELOPMENT.${COMMIT_ID:0:12}"
           fi
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
@@ -91,6 +91,7 @@ jobs:
           echo "commit_id=$COMMIT_ID" >> "$GITHUB_OUTPUT"
           echo "short_commit_id=${COMMIT_ID:0:12}" >> "$GITHUB_OUTPUT"
 
+          git -C minio/mc-src fetch --tags --quiet 2>/dev/null || true
           RELEASE_TAG="$(git -C minio/mc-src describe --tags --exact-match 2>/dev/null || true)"
           if [[ -z "$RELEASE_TAG" ]]; then
             RELEASE_TAG="DEVELOPMENT.${COMMIT_ID:0:12}"
